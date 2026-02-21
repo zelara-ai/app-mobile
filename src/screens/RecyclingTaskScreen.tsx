@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import RNFS from 'react-native-fs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 
@@ -23,13 +25,37 @@ interface Props {
 const RecyclingTaskScreen: React.FC<Props> = ({ navigation }) => {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const camera = useRef<Camera>(null);
+  const device = useCameraDevice('back');
+  const { hasPermission, requestPermission } = useCameraPermission();
 
-  const takePhoto = () => {
-    // TODO: Implement camera integration
-    Alert.alert(
-      'Camera',
-      'Camera integration pending. This will open the camera to capture a recycling photo.',
-    );
+  const takePhoto = async () => {
+    if (!hasPermission) {
+      const granted = await requestPermission();
+      if (!granted) {
+        Alert.alert('Permission Denied', 'Camera permission is required to take photos');
+        return;
+      }
+    }
+
+    setShowCamera(true);
+  };
+
+  const capturePhoto = async () => {
+    if (!camera.current) return;
+
+    try {
+      const photo = await camera.current.takePhoto({
+        flash: 'off',
+      });
+
+      setImageUri(`file://${photo.path}`);
+      setShowCamera(false);
+    } catch (error) {
+      console.error('Failed to capture photo:', error);
+      Alert.alert('Error', 'Failed to capture photo');
+    }
   };
 
   const validateImage = async () => {
@@ -40,21 +66,73 @@ const RecyclingTaskScreen: React.FC<Props> = ({ navigation }) => {
 
     setValidating(true);
     try {
-      // TODO: Send image to linked Desktop for validation
+      // Convert image to base64
+      const base64Image = await RNFS.readFile(imageUri.replace('file://', ''), 'base64');
+
+      // TODO: Send to linked Desktop for validation
       // For now, simulate validation
       await new Promise(resolve => setTimeout(resolve, 2000));
 
+      // Mock success result
       Alert.alert(
         'Validation Success!',
         'Paper bag with recyclable items detected. You earned 10 points!',
-        [{ text: 'OK', onPress: () => navigation.goBack() }],
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // TODO: Award points via ProgressStorage
+              navigation.goBack();
+            },
+          },
+        ],
       );
     } catch (error) {
+      console.error('Validation error:', error);
       Alert.alert('Error', 'Failed to validate image');
     } finally {
       setValidating(false);
     }
   };
+
+  if (showCamera) {
+    if (!device) {
+      return (
+        <View style={styles.container}>
+          <Text style={styles.errorText}>No camera device found</Text>
+          <TouchableOpacity
+            style={styles.photoButton}
+            onPress={() => setShowCamera(false)}>
+            <Text style={styles.photoButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.cameraContainer}>
+        <Camera
+          ref={camera}
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={showCamera}
+          photo={true}
+        />
+        <View style={styles.cameraControls}>
+          <TouchableOpacity
+            style={styles.captureButton}
+            onPress={capturePhoto}>
+            <View style={styles.captureButtonInner} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => setShowCamera(false)}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -189,6 +267,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 4,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#e74c3c',
+    textAlign: 'center',
+    marginTop: 100,
+  },
+  // Camera styles
+  cameraContainer: {
+    flex: 1,
+  },
+  cameraControls: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  captureButtonInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#3498db',
+  },
+  cancelButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

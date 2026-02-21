@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import QRCodeScanner from 'react-native-qrcode-scanner';
+import { RNCamera } from 'react-native-camera';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 
@@ -18,17 +20,90 @@ interface Props {
   navigation: DevicePairingScreenNavigationProp;
 }
 
+interface DeviceInfo {
+  id: string;
+  name: string;
+  platform: string;
+}
+
 const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
   const [scanning, setScanning] = useState(false);
-  const [linkedDevices, setLinkedDevices] = useState<any[]>([]);
+  const [linkedDevices, setLinkedDevices] = useState<DeviceInfo[]>([]);
 
   const scanQRCode = () => {
-    // TODO: Implement QR scanner
-    Alert.alert(
-      'QR Scanner',
-      'QR scanner integration pending. This will scan the QR code from your Desktop app.',
-    );
+    setScanning(true);
   };
+
+  const onQRCodeRead = (e: any) => {
+    if (!e || !e.data) return;
+
+    // Parse QR code data (format: zelara://pair?ip=192.168.1.100&port=8765&token=abc123)
+    try {
+      const url = new URL(e.data);
+
+      if (url.protocol !== 'zelara:' || url.hostname !== 'pair') {
+        Alert.alert('Invalid QR Code', 'Please scan a valid Zelara pairing QR code');
+        setScanning(false);
+        return;
+      }
+
+      const ip = url.searchParams.get('ip');
+      const port = url.searchParams.get('port');
+      const token = url.searchParams.get('token');
+
+      if (!ip || !port || !token) {
+        Alert.alert('Invalid QR Code', 'Missing pairing information');
+        setScanning(false);
+        return;
+      }
+
+      // TODO: Initiate TLS connection to Desktop
+      // For now, add mock device
+      const newDevice: DeviceInfo = {
+        id: Date.now().toString(),
+        name: `Desktop (${ip})`,
+        platform: 'desktop',
+      };
+
+      setLinkedDevices([...linkedDevices, newDevice]);
+      setScanning(false);
+
+      Alert.alert(
+        'Device Linked!',
+        `Successfully paired with Desktop at ${ip}:${port}`,
+      );
+    } catch (error) {
+      console.error('QR parse error:', error);
+      Alert.alert('Error', 'Failed to parse QR code');
+      setScanning(false);
+    }
+  };
+
+  if (scanning) {
+    return (
+      <View style={styles.scannerContainer}>
+        <QRCodeScanner
+          onRead={onQRCodeRead}
+          flashMode={RNCamera.Constants.FlashMode.auto}
+          topContent={
+            <View style={styles.scannerTop}>
+              <Text style={styles.scannerTitle}>Scan Desktop QR Code</Text>
+              <Text style={styles.scannerInstructions}>
+                Point your camera at the QR code on your Desktop app
+              </Text>
+            </View>
+          }
+          bottomContent={
+            <TouchableOpacity
+              style={styles.scannerCancelButton}
+              onPress={() => setScanning(false)}>
+              <Text style={styles.scannerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          }
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -167,6 +242,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#2c3e50',
     marginBottom: 4,
+  },
+  // Scanner styles
+  scannerContainer: {
+    flex: 1,
+  },
+  scannerTop: {
+    padding: 20,
+    backgroundColor: '#fff',
+  },
+  scannerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  scannerInstructions: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  scannerCancelButton: {
+    backgroundColor: '#e74c3c',
+    padding: 16,
+    margin: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  scannerCancelText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
