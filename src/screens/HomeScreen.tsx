@@ -8,9 +8,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { UserProgress } from '@zelara/shared';
-import { ProgressStorage } from '@zelara/state';
 import type { RootStackParamList } from '../../App';
+import ProgressService from '../services/ProgressService';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -21,24 +20,35 @@ interface Props {
   navigation: HomeScreenNavigationProp;
 }
 
+interface ProgressState {
+  points: number;
+  unlocked_modules: string[];
+  available_unlocks: string[];
+}
+
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const [progress, setProgress] = useState<UserProgress | null>(null);
+  const [progress, setProgress] = useState<ProgressState | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadProgress();
-  }, []);
+
+    // Reload progress when screen is focused (after completing tasks)
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadProgress();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const loadProgress = async () => {
     try {
-      // TODO: Implement AsyncStorage adapter
-      const defaultProgress: UserProgress = {
-        points: 0,
-        unlockedModules: ['green'],
-        availableUnlocks: [],
-        lastUpdated: new Date().toISOString(),
-      };
-      setProgress(defaultProgress);
+      const progressData = await ProgressService.loadProgress();
+      setProgress({
+        points: progressData.points,
+        unlocked_modules: progressData.unlocked_modules,
+        available_unlocks: progressData.available_unlocks,
+      });
     } catch (error) {
       console.error('Failed to load progress:', error);
     } finally {
@@ -100,7 +110,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Your Modules</Text>
-        {progress.unlockedModules.includes('green') && (
+        {progress.unlocked_modules.includes('green') && (
           <View style={[styles.moduleCard, styles.moduleUnlocked]}>
             <Text style={styles.moduleName}>Green</Text>
             <Text style={styles.moduleDescription}>
@@ -109,7 +119,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.moduleStatus}>Unlocked</Text>
           </View>
         )}
-        {progress.unlockedModules.includes('finance') ? (
+        {progress.unlocked_modules.includes('finance') ? (
           <TouchableOpacity
             style={[styles.moduleCard, styles.moduleUnlocked]}
             onPress={() => navigation.navigate('Finance')}>
@@ -126,7 +136,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               Personal finance organization
             </Text>
             <Text style={styles.moduleStatus}>
-              {progress.availableUnlocks.includes('finance')
+              {progress.available_unlocks.includes('finance')
                 ? 'Available to unlock!'
                 : 'Locked'}
             </Text>

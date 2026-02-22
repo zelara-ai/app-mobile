@@ -13,6 +13,7 @@ import RNFS from 'react-native-fs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import DeviceLinkingService from '../services/DeviceLinkingService';
+import ProgressService from '../services/ProgressService';
 
 type RecyclingTaskScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -74,19 +75,30 @@ const RecyclingTaskScreen: React.FC<Props> = ({ navigation }) => {
       const result = await DeviceLinkingService.sendImageValidation(base64Image);
 
       if (result.success) {
-        Alert.alert(
-          'Validation Success!',
-          `${result.message}\nConfidence: ${(result.confidence * 100).toFixed(0)}%\nYou earned 10 points!`,
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                // TODO: Award points via ProgressStorage
-                navigation.goBack();
-              },
-            },
-          ],
+        // Award points for successful validation
+        const taskId = `recycling_${Date.now()}`;
+        const pointsAwarded = 10;
+        const { newPoints, unlockedModules } = await ProgressService.awardPoints(
+          pointsAwarded,
+          taskId
         );
+
+        // Build success message
+        let message = `${result.message}\nConfidence: ${(result.confidence * 100).toFixed(0)}%\n\nYou earned ${pointsAwarded} points!\nTotal points: ${newPoints}`;
+
+        // Check if any modules were unlocked
+        if (unlockedModules.length > 0) {
+          message += `\n\n🎉 NEW UNLOCK AVAILABLE: ${unlockedModules.join(', ').toUpperCase()} module!`;
+        }
+
+        Alert.alert('Validation Success!', message, [
+          {
+            text: 'OK',
+            onPress: () => {
+              navigation.goBack();
+            },
+          },
+        ]);
       } else {
         Alert.alert('Validation Failed', result.error || 'Image did not meet requirements');
       }
