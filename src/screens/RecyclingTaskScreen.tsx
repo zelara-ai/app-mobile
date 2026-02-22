@@ -12,6 +12,7 @@ import { Camera, useCameraDevice, useCameraPermission } from 'react-native-visio
 import RNFS from 'react-native-fs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import DeviceLinkingService from '../services/DeviceLinkingService';
 
 type RecyclingTaskScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -69,27 +70,32 @@ const RecyclingTaskScreen: React.FC<Props> = ({ navigation }) => {
       // Convert image to base64
       const base64Image = await RNFS.readFile(imageUri.replace('file://', ''), 'base64');
 
-      // TODO: Send to linked Desktop for validation
-      // For now, simulate validation
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Send to linked Desktop for validation
+      const result = await DeviceLinkingService.sendImageValidation(base64Image);
 
-      // Mock success result
-      Alert.alert(
-        'Validation Success!',
-        'Paper bag with recyclable items detected. You earned 10 points!',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // TODO: Award points via ProgressStorage
-              navigation.goBack();
+      if (result.success) {
+        Alert.alert(
+          'Validation Success!',
+          `${result.message}\nConfidence: ${(result.confidence * 100).toFixed(0)}%\nYou earned 10 points!`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // TODO: Award points via ProgressStorage
+                navigation.goBack();
+              },
             },
-          },
-        ],
-      );
-    } catch (error) {
+          ],
+        );
+      } else {
+        Alert.alert('Validation Failed', result.error || 'Image did not meet requirements');
+      }
+    } catch (error: any) {
       console.error('Validation error:', error);
-      Alert.alert('Error', 'Failed to validate image');
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to validate image. Make sure you are connected to a Desktop device.',
+      );
     } finally {
       setValidating(false);
     }

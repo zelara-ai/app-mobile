@@ -5,11 +5,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import QRCodeScanner from 'react-native-qrcode-scanner';
 import { RNCamera } from 'react-native-camera';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import DeviceLinkingService from '../services/DeviceLinkingService';
 
 type DevicePairingScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -28,13 +30,14 @@ interface DeviceInfo {
 
 const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
   const [scanning, setScanning] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [linkedDevices, setLinkedDevices] = useState<DeviceInfo[]>([]);
 
   const scanQRCode = () => {
     setScanning(true);
   };
 
-  const onQRCodeRead = (e: any) => {
+  const onQRCodeRead = async (e: any) => {
     if (!e || !e.data) return;
 
     // Parse QR code data (format: zelara://pair?ip=192.168.1.100&port=8765&token=abc123)
@@ -57,27 +60,50 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      // TODO: Initiate TLS connection to Desktop
-      // For now, add mock device
-      const newDevice: DeviceInfo = {
-        id: Date.now().toString(),
-        name: `Desktop (${ip})`,
-        platform: 'desktop',
-      };
-
-      setLinkedDevices([...linkedDevices, newDevice]);
       setScanning(false);
+      setConnecting(true);
 
-      Alert.alert(
-        'Device Linked!',
-        `Successfully paired with Desktop at ${ip}:${port}`,
-      );
+      try {
+        // Connect to Desktop via WebSocket
+        await DeviceLinkingService.connect(ip, parseInt(port, 10), token);
+
+        const newDevice: DeviceInfo = {
+          id: Date.now().toString(),
+          name: `Desktop (${ip})`,
+          platform: 'desktop',
+        };
+
+        setLinkedDevices([...linkedDevices, newDevice]);
+
+        Alert.alert(
+          'Device Linked!',
+          `Successfully connected to Desktop at ${ip}:${port}`,
+        );
+      } catch (error: any) {
+        console.error('Connection error:', error);
+        Alert.alert(
+          'Connection Failed',
+          error.message || 'Failed to connect to Desktop',
+        );
+      } finally {
+        setConnecting(false);
+      }
     } catch (error) {
       console.error('QR parse error:', error);
       Alert.alert('Error', 'Failed to parse QR code');
       setScanning(false);
+      setConnecting(false);
     }
   };
+
+  if (connecting) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3498db" />
+        <Text style={styles.loadingText}>Connecting to Desktop...</Text>
+      </View>
+    );
+  }
 
   if (scanning) {
     return (
@@ -274,6 +300,18 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Loading styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
   },
 });
 
