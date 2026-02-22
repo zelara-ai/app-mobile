@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
-import QRCodeScanner from 'react-native-qrcode-scanner';
-import { Camera } from 'react-native-vision-camera';
+import { Camera, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import DeviceLinkingService from '../services/DeviceLinkingService';
@@ -32,21 +32,21 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
   const [scanning, setScanning] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [linkedDevices, setLinkedDevices] = useState<DeviceInfo[]>([]);
+  const [hasScanned, setHasScanned] = useState(false);
+  const { hasPermission, requestPermission } = useCameraPermission();
 
-  const scanQRCode = () => {
-    setScanning(true);
-  };
-
-  const onQRCodeRead = async (e: any) => {
-    if (!e || !e.data) return;
+  const handleQRCodeScanned = async (qrData: string) => {
+    if (hasScanned) return; // Prevent multiple scans
+    setHasScanned(true);
 
     // Parse QR code data (format: zelara://pair?ip=192.168.1.100&port=8765&token=abc123)
     try {
-      const url = new URL(e.data);
+      const url = new URL(qrData);
 
       if (url.protocol !== 'zelara:' || url.hostname !== 'pair') {
-        Alert.alert('Invalid QR Code', 'Please scan a valid Zelara pairing QR code');
-        setScanning(false);
+        Alert.alert('Invalid QR Code', 'Please scan a valid Zelara pairing QR code', [
+          { text: 'OK', onPress: () => { setHasScanned(false); } }
+        ]);
         return;
       }
 
@@ -55,8 +55,9 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
       const token = url.searchParams.get('token');
 
       if (!ip || !port || !token) {
-        Alert.alert('Invalid QR Code', 'Missing pairing information');
-        setScanning(false);
+        Alert.alert('Invalid QR Code', 'Missing pairing information', [
+          { text: 'OK', onPress: () => { setHasScanned(false); } }
+        ]);
         return;
       }
 
@@ -87,13 +88,44 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
         );
       } finally {
         setConnecting(false);
+        setHasScanned(false);
       }
     } catch (error) {
       console.error('QR parse error:', error);
-      Alert.alert('Error', 'Failed to parse QR code');
+      Alert.alert('Error', 'Failed to parse QR code', [
+        { text: 'OK', onPress: () => { setHasScanned(false); } }
+      ]);
       setScanning(false);
       setConnecting(false);
     }
+  };
+
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr'],
+    onCodeScanned: (codes) => {
+      if (codes.length > 0 && codes[0].value) {
+        handleQRCodeScanned(codes[0].value);
+      }
+    },
+  });
+
+  const scanQRCode = async () => {
+    if (!hasPermission) {
+      const granted = await requestPermission();
+      if (!granted) {
+        Alert.alert(
+          'Camera Permission Required',
+          'Please grant camera permission to scan QR codes',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
+    }
+    setHasScanned(false);
+    setScanning(true);
   };
 
   if (connecting) {
@@ -105,27 +137,47 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
-  if (scanning) {
+  if (scanning && hasPermission) {
+    const devices = Camera.getAvailableCameraDevices();
+    const device = devices.find(d => d.position === 'back') || devices[0];
+
+    if (!device) {
+      return (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>No camera available</Text>
+          <TouchableOpacity
+            style={styles.scanButton}
+            onPress={() => setScanning(false)}>
+            <Text style={styles.scanButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.scannerContainer}>
-        <QRCodeScanner
-          onRead={onQRCodeRead}
-          topContent={
-            <View style={styles.scannerTop}>
-              <Text style={styles.scannerTitle}>Scan Desktop QR Code</Text>
-              <Text style={styles.scannerInstructions}>
-                Point your camera at the QR code on your Desktop app
-              </Text>
-            </View>
-          }
-          bottomContent={
+        <Camera
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={true}
+          codeScanner={codeScanner}
+        />
+        <View style={styles.scannerOverlay}>
+          <View style={styles.scannerTop}>
+            <Text style={styles.scannerTitle}>Scan Desktop QR Code</Text>
+            <Text style={styles.scannerInstructions}>
+              Point your camera at the QR code on your Desktop app
+            </Text>
+          </View>
+          <View style={styles.scannerFrame} />
+          <View style={styles.scannerBottom}>
             <TouchableOpacity
               style={styles.scannerCancelButton}
               onPress={() => setScanning(false)}>
               <Text style={styles.scannerCancelText}>Cancel</Text>
             </TouchableOpacity>
-          }
-        />
+          </View>
+        </View>
       </View>
     );
   }
@@ -271,28 +323,50 @@ const styles = StyleSheet.create({
   // Scanner styles
   scannerContainer: {
     flex: 1,
+    backgroundColor: '#000',
+  },
+  scannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-between',
   },
   scannerTop: {
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
   },
   scannerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2c3e50',
+    color: '#fff',
     marginBottom: 8,
     textAlign: 'center',
   },
   scannerInstructions: {
     fontSize: 14,
-    color: '#666',
+    color: '#fff',
     textAlign: 'center',
+    opacity: 0.9,
+  },
+  scannerFrame: {
+    alignSelf: 'center',
+    width: 250,
+    height: 250,
+    borderWidth: 2,
+    borderColor: '#3498db',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  scannerBottom: {
+    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
   },
   scannerCancelButton: {
     backgroundColor: '#e74c3c',
-    padding: 16,
-    margin: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
     borderRadius: 8,
+    minWidth: 120,
     alignItems: 'center',
   },
   scannerCancelText: {
