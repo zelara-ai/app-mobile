@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import QRCodeScanner from 'react-native-qrcode-scanner';
-import { RNCamera } from 'react-native-camera';
+import { Camera } from 'react-native-vision-camera';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import DeviceLinkingService from '../services/DeviceLinkingService';
@@ -110,7 +110,6 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
       <View style={styles.scannerContainer}>
         <QRCodeScanner
           onRead={onQRCodeRead}
-          flashMode={RNCamera.Constants.FlashMode.auto}
           topContent={
             <View style={styles.scannerTop}>
               <Text style={styles.scannerTitle}>Scan Desktop QR Code</Text>
