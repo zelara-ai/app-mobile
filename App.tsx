@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './src/screens/HomeScreen';
 import RecyclingTaskScreen from './src/screens/RecyclingTaskScreen';
 import DevicePairingScreen from './src/screens/DevicePairingScreen';
@@ -13,7 +13,7 @@ export type RootStackParamList = {
   Finance: undefined;
 };
 
-const Stack = createStackNavigator<RootStackParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function App(): React.JSX.Element {
   return (
