@@ -5,10 +5,16 @@ node_modules/
 .expo/
 .expo-shared/
 
-# Build output
+# Build output (track native project structure, ignore build artifacts)
+android/.gradle/
 android/app/build/
+android/build/
+android/local.properties
 ios/Pods/
 ios/build/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Logs
 *.log
