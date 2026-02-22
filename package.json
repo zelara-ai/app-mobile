@@ -17,7 +17,6 @@
     "react-native-screens": "^4.5.0",
     "react-native-safe-area-context": "^5.1.0",
     "react-native-vision-camera": "^4.7.3",
-    "react-native-camera": "^4.2.1",
     "react-native-qrcode-scanner": "^1.5.5",
     "@react-native-async-storage/async-storage": "^2.1.0",
     "react-native-fs": "^2.20.0",
