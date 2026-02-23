@@ -8,7 +8,9 @@ node_modules/
 # Build output (track native project structure, ignore build artifacts)
 android/.gradle/
 android/app/build/
+android/app/.cxx/
 android/build/
+android/gradle/gradle-daemon-jvm.properties
 android/local.properties
 ios/Pods/
 ios/build/
