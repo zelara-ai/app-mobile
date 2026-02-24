@@ -55,6 +55,18 @@ react {
 }
 
 /**
+ * Explicit configuration to ensure JS bundle is created for release builds.
+ * This addresses issues where the bundle might not be generated automatically
+ * when building from Android Studio.
+ */
+project.ext.react = [
+    enableHermes: true,  // Use Hermes JS engine (aligned with gradle.properties)
+    bundleInDebug: false,
+    bundleInRelease: true,
+    devDisabledInRelease: true
+]
+
+/**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
 def enableProguardInReleaseBuilds = false
@@ -84,6 +96,21 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
     }
     signingConfigs {
         debug {

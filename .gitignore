@@ -37,3 +37,5 @@ Thumbs.db
 
 # Zelara
 .zelara/
+package-lock.json
+android/nul

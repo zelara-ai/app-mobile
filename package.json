@@ -7,22 +7,23 @@
     "ios": "react-native run-ios",
     "start": "react-native start",
     "test": "jest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "bundle:android": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-native": "0.76.6",
+    "@react-native-async-storage/async-storage": "^2.1.0",
     "@react-navigation/native": "^7.0.14",
     "@react-navigation/native-stack": "^7.2.1",
-    "react-native-screens": "^3.31.0",
-    "react-native-safe-area-context": "^5.1.0",
-    "react-native-vision-camera": "^4.7.3",
-    "@react-native-async-storage/async-storage": "^2.1.0",
-    "react-native-fs": "^2.20.0",
+    "@zelara/device-linking": "file:../../src/packages/device-linking",
     "@zelara/shared": "file:../../src/packages/shared",
     "@zelara/skill-tree": "file:../../src/packages/skill-tree",
     "@zelara/state": "file:../../src/packages/state",
-    "@zelara/device-linking": "file:../../src/packages/device-linking"
+    "react": "^18.2.0",
+    "react-native": "0.76.6",
+    "react-native-fs": "^2.20.0",
+    "react-native-safe-area-context": "^5.1.0",
+    "react-native-screens": "^4.4.0",
+    "react-native-vision-camera": "^4.7.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
@@ -31,6 +32,7 @@
     "@react-native-community/cli": "15.1.3",
     "@react-native-community/cli-platform-android": "15.1.3",
     "@react-native-community/cli-platform-ios": "15.1.3",
+    "@react-native-community/cli-server-api": "15.1.3",
     "@react-native/babel-preset": "0.76.6",
     "@react-native/eslint-config": "0.76.6",
     "@react-native/metro-config": "0.76.6",
