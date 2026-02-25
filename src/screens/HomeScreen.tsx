@@ -106,6 +106,11 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           onPress={() => navigation.navigate('DevicePairing')}>
           <Text style={styles.actionButtonText}>Link Desktop Device</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.testingButton]}
+          onPress={() => navigation.navigate('Testing')}>
+          <Text style={styles.actionButtonText}>Testing Module</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -229,6 +234,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 8,
     marginBottom: 12,
+  },
+  testingButton: {
+    backgroundColor: '#9b59b6',
   },
   actionButtonText: {
     color: '#fff',

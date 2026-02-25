@@ -5,12 +5,14 @@ import HomeScreen from './src/screens/HomeScreen';
 import RecyclingTaskScreen from './src/screens/RecyclingTaskScreen';
 import DevicePairingScreen from './src/screens/DevicePairingScreen';
 import FinanceScreen from './src/screens/FinanceScreen';
+import TestingScreen from './src/screens/TestingScreen';
 
 export type RootStackParamList = {
   Home: undefined;
   RecyclingTask: undefined;
   DevicePairing: undefined;
   Finance: undefined;
+  Testing: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -48,6 +50,11 @@ function App(): React.JSX.Element {
           name="Finance"
           component={FinanceScreen}
           options={{ title: 'Finance' }}
+        />
+        <Stack.Screen
+          name="Testing"
+          component={TestingScreen}
+          options={{ title: 'Testing' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

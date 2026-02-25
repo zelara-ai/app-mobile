@@ -9,6 +9,7 @@ import {
   Linking,
 } from 'react-native';
 import { Camera, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import DeviceLinkingService from '../services/DeviceLinkingService';
@@ -28,6 +29,8 @@ interface DeviceInfo {
   platform: string;
 }
 
+const LINKED_DEVICES_KEY = '@zelara_linked_devices';
+
 const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
   const [scanning, setScanning] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -35,27 +38,69 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
   const [hasScanned, setHasScanned] = useState(false);
   const { hasPermission, requestPermission } = useCameraPermission();
 
+  // Load linked devices from AsyncStorage on mount
+  useEffect(() => {
+    loadLinkedDevices();
+  }, []);
+
+  const loadLinkedDevices = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(LINKED_DEVICES_KEY);
+      if (stored) {
+        const devices: DeviceInfo[] = JSON.parse(stored);
+        setLinkedDevices(devices);
+      }
+    } catch (error) {
+      console.error('Failed to load linked devices:', error);
+    }
+  };
+
+  const saveLinkedDevices = async (devices: DeviceInfo[]) => {
+    try {
+      await AsyncStorage.setItem(LINKED_DEVICES_KEY, JSON.stringify(devices));
+    } catch (error) {
+      console.error('Failed to save linked devices:', error);
+    }
+  };
+
   const handleQRCodeScanned = async (qrData: string) => {
     if (hasScanned) return; // Prevent multiple scans
     setHasScanned(true);
 
     // Parse QR code data (format: zelara://pair?ip=192.168.1.100&port=8765&token=abc123)
     try {
-      const url = new URL(qrData);
-
-      if (url.protocol !== 'zelara:' || url.hostname !== 'pair') {
+      // Manual parsing since React Native doesn't support URLSearchParams
+      if (!qrData.startsWith('zelara://pair?')) {
         Alert.alert('Invalid QR Code', 'Please scan a valid Zelara pairing QR code', [
           { text: 'OK', onPress: () => { setHasScanned(false); } }
         ]);
         return;
       }
 
-      const ip = url.searchParams.get('ip');
-      const port = url.searchParams.get('port');
-      const token = url.searchParams.get('token');
+      // Extract query string
+      const queryString = qrData.split('?')[1];
+      if (!queryString) {
+        Alert.alert('Invalid QR Code', 'Missing pairing information', [
+          { text: 'OK', onPress: () => { setHasScanned(false); } }
+        ]);
+        return;
+      }
+
+      // Parse query parameters manually (URLSearchParams not available in RN)
+      const params: Record<string, string> = {};
+      queryString.split('&').forEach(pair => {
+        const [key, value] = pair.split('=');
+        if (key && value) {
+          params[key] = decodeURIComponent(value);
+        }
+      });
+
+      const ip = params.ip;
+      const port = params.port;
+      const token = params.token;
 
       if (!ip || !port || !token) {
-        Alert.alert('Invalid QR Code', 'Missing pairing information', [
+        Alert.alert('Invalid QR Code', 'Missing pairing information (ip, port, or token)', [
           { text: 'OK', onPress: () => { setHasScanned(false); } }
         ]);
         return;
@@ -74,7 +119,9 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
           platform: 'desktop',
         };
 
-        setLinkedDevices([...linkedDevices, newDevice]);
+        const updatedDevices = [...linkedDevices, newDevice];
+        setLinkedDevices(updatedDevices);
+        await saveLinkedDevices(updatedDevices);
 
         Alert.alert(
           'Device Linked!',

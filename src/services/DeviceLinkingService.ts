@@ -100,6 +100,54 @@ class DeviceLinkingService {
   }
 
   /**
+   * Send image inversion test request to Desktop
+   */
+  async sendImageInversionTest(base64Image: string): Promise<any> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Desktop');
+    }
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    const request: TaskRequest = {
+      taskId,
+      taskType: 'image_inversion_test',
+      payload: {
+        imageData: base64Image,
+        token: this.connectionInfo!.token,
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    return new Promise((resolve, reject) => {
+      // Store callback for this request
+      this.pendingRequests.set(taskId, (response: TaskResponse) => {
+        if (response.success) {
+          resolve(response.result);
+        } else {
+          reject(new Error(response.result.error || 'Inversion failed'));
+        }
+      });
+
+      // Send request
+      try {
+        this.connection!.send(JSON.stringify(request));
+      } catch (error) {
+        this.pendingRequests.delete(taskId);
+        reject(error);
+      }
+
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        if (this.pendingRequests.has(taskId)) {
+          this.pendingRequests.delete(taskId);
+          reject(new Error('Request timeout'));
+        }
+      }, 30000);
+    });
+  }
+
+  /**
    * Send image validation request to Desktop
    */
   async sendImageValidation(base64Image: string): Promise<any> {
