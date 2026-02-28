@@ -34,48 +34,80 @@ class DeviceLinkingService {
   private pendingRequests: Map<string, (response: TaskResponse) => void> = new Map();
 
   /**
-   * Connect to Desktop server
+   * Connect to Desktop server, trying each IP in order until one succeeds.
+   * This handles cases where the QR code embeds multiple interface IPs
+   * (e.g., main WiFi + hotspot adapter).
    */
-  async connect(ip: string, port: number, token: string): Promise<void> {
-    return new Promise((resolve, reject) => {
+  async connect(ips: string | string[], port: number, token: string): Promise<void> {
+    const ipList = Array.isArray(ips) ? ips : [ips];
+    const errors: string[] = [];
+
+    for (const ip of ipList) {
       try {
-        // For MVP, use WebSocket instead of TCP/TLS (simpler for React Native)
-        // In production, use react-native-tcp-socket with TLS
+        await this.connectToSingle(ip, port, token);
+        return; // success
+      } catch (err: any) {
+        errors.push(`${ip}: ${err.message}`);
+      }
+    }
+
+    throw new Error(`Could not connect to Desktop. Tried:\n${errors.join('\n')}`);
+  }
+
+  /**
+   * Attempt a WebSocket connection to a single IP with a 3-second timeout.
+   */
+  private connectToSingle(ip: string, port: number, token: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const settle = (fn: () => void) => {
+        if (!settled) {
+          settled = true;
+          fn();
+        }
+      };
+
+      try {
         const ws = new WebSocket(`ws://${ip}:${port}`);
 
+        const timer = setTimeout(() => {
+          ws.close();
+          settle(() => reject(new Error('Connection timeout')));
+        }, 3000);
+
         ws.onopen = () => {
-          console.log('Connected to Desktop');
+          clearTimeout(timer);
+          console.log(`Connected to Desktop at ${ip}:${port}`);
           this.connection = ws;
           this.connectionInfo = { ip, port, token };
           this.connected = true;
-          resolve();
+
+          ws.onclose = () => {
+            console.log('Disconnected from Desktop');
+            this.connected = false;
+            this.connection = null;
+          };
+
+          ws.onmessage = (event) => {
+            this.handleMessage(event.data);
+          };
+
+          settle(() => resolve());
         };
 
-        ws.onerror = (error) => {
-          console.error('Connection error:', error);
-          this.connected = false;
-          reject(new Error('Failed to connect to Desktop'));
+        ws.onerror = (event: any) => {
+          clearTimeout(timer);
+          console.error(`WebSocket error connecting to ${ip}:${port}`, event?.message || event);
+          settle(() => reject(new Error('Connection refused')));
         };
 
         ws.onclose = () => {
-          console.log('Disconnected from Desktop');
-          this.connected = false;
-          this.connection = null;
+          clearTimeout(timer);
+          settle(() => reject(new Error('Connection closed')));
         };
-
-        ws.onmessage = (event) => {
-          this.handleMessage(event.data);
-        };
-
-        // Timeout after 10 seconds
-        setTimeout(() => {
-          if (!this.connected) {
-            ws.close();
-            reject(new Error('Connection timeout'));
-          }
-        }, 10000);
-      } catch (error) {
-        reject(error);
+      } catch (error: any) {
+        settle(() => reject(error));
       }
     });
   }

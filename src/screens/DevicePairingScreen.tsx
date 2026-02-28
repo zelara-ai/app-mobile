@@ -95,27 +95,31 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
         }
       });
 
-      const ip = params.ip;
+      // Support both legacy `ip` and new `ips` (comma-separated) params
+      const ipsParam = params.ips || params.ip;
       const port = params.port;
       const token = params.token;
 
-      if (!ip || !port || !token) {
+      if (!ipsParam || !port || !token) {
         Alert.alert('Invalid QR Code', 'Missing pairing information (ip, port, or token)', [
           { text: 'OK', onPress: () => { setHasScanned(false); } }
         ]);
         return;
       }
 
+      const ipList = ipsParam.split(',').map((s: string) => s.trim()).filter(Boolean);
+      const displayIp = ipList[0] || ipsParam;
+
       setScanning(false);
       setConnecting(true);
 
       try {
-        // Connect to Desktop via WebSocket
-        await DeviceLinkingService.connect(ip, parseInt(port, 10), token);
+        // Connect to Desktop via WebSocket — tries each IP in order
+        await DeviceLinkingService.connect(ipList, parseInt(port, 10), token);
 
         const newDevice: DeviceInfo = {
           id: Date.now().toString(),
-          name: `Desktop (${ip})`,
+          name: `Desktop (${displayIp})`,
           platform: 'desktop',
         };
 
@@ -125,7 +129,7 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
 
         Alert.alert(
           'Device Linked!',
-          `Successfully connected to Desktop at ${ip}:${port}`,
+          `Successfully connected to Desktop at ${displayIp}:${port}`,
         );
       } catch (error: any) {
         console.error('Connection error:', error);
