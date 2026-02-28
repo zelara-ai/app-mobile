@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,42 @@ import {
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import RNFS from 'react-native-fs';
 import DeviceLinkingService from '../services/DeviceLinkingService';
 
 const TestingScreen: React.FC = () => {
   const [testing, setTesting] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [imageUri, setImageUri] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ original: string; inverted: string } | null>(null);
   const [isConnected, setIsConnected] = useState(DeviceLinkingService.isConnected());
+  const camera = useRef<Camera>(null);
+  const device = useCameraDevice('back');
+  const { hasPermission, requestPermission } = useCameraPermission();
+
+  const takePhoto = async () => {
+    if (!hasPermission) {
+      const granted = await requestPermission();
+      if (!granted) {
+        Alert.alert('Permission Denied', 'Camera permission is required to take photos');
+        return;
+      }
+    }
+    setShowCamera(true);
+  };
+
+  const capturePhoto = async () => {
+    if (!camera.current) return;
+    try {
+      const photo = await camera.current.takePhoto({ flash: 'off' });
+      setImageUri(`file://${photo.path}`);
+      setShowCamera(false);
+    } catch (error) {
+      console.error('Failed to capture photo:', error);
+      Alert.alert('Error', 'Failed to capture photo');
+    }
+  };
 
   const testImageInversion = async () => {
     if (!DeviceLinkingService.isConnected()) {
@@ -22,15 +52,18 @@ const TestingScreen: React.FC = () => {
       return;
     }
 
+    if (!imageUri) {
+      Alert.alert('No Photo', 'Please take a photo first');
+      return;
+    }
+
     setTesting(true);
     try {
-      // Use a simple test image (1x1 red pixel)
-      const testImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
-
-      const result = await DeviceLinkingService.sendImageInversionTest(testImageBase64);
+      const base64Image = await RNFS.readFile(imageUri.replace('file://', ''), 'base64');
+      const result = await DeviceLinkingService.sendImageInversionTest(base64Image);
 
       setTestResult({
-        original: testImageBase64,
+        original: base64Image,
         inverted: result.invertedImage,
       });
 
@@ -51,6 +84,44 @@ const TestingScreen: React.FC = () => {
       connected ? 'Connected to Desktop' : 'Not connected to Desktop'
     );
   };
+
+  // Full-screen camera view
+  if (showCamera) {
+    if (!device) {
+      return (
+        <View style={styles.container}>
+          <Text style={styles.errorText}>No camera device found</Text>
+          <TouchableOpacity
+            style={[styles.button, styles.secondaryButton]}
+            onPress={() => setShowCamera(false)}>
+            <Text style={styles.buttonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.cameraContainer}>
+        <Camera
+          ref={camera}
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={showCamera}
+          photo={true}
+        />
+        <View style={styles.cameraControls}>
+          <TouchableOpacity style={styles.captureButton} onPress={capturePhoto}>
+            <View style={styles.captureButtonInner} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => setShowCamera(false)}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -78,17 +149,34 @@ const TestingScreen: React.FC = () => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Image Processing Test</Text>
           <Text style={styles.description}>
-            Send a test image to Desktop, invert it, and receive the result back
+            Take a photo, send it to Desktop, and see the color-inverted result on both devices
           </Text>
+
+          {imageUri && (
+            <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="cover" />
+          )}
+
+          <TouchableOpacity
+            style={[styles.button, styles.secondaryButton, { marginBottom: 8 }]}
+            onPress={takePhoto}>
+            <Text style={styles.buttonText}>
+              {imageUri ? 'Retake Photo' : 'Take Photo'}
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.button, styles.primaryButton]}
             onPress={testImageInversion}
-            disabled={testing || !isConnected}>
+            disabled={testing || !isConnected || !imageUri}>
             {testing ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.buttonText}>
-                {isConnected ? 'Run Image Inversion Test' : 'Connect Desktop First'}
+                {!isConnected
+                  ? 'Connect Desktop First'
+                  : !imageUri
+                  ? 'Take a Photo First'
+                  : 'Run Image Inversion Test'}
               </Text>
             )}
           </TouchableOpacity>
@@ -108,7 +196,7 @@ const TestingScreen: React.FC = () => {
                   <View style={styles.imageSection}>
                     <Text style={styles.imageLabel}>Original</Text>
                     <Image
-                      source={{ uri: `data:image/png;base64,${testResult.original}` }}
+                      source={{ uri: `data:image/jpeg;base64,${testResult.original}` }}
                       style={styles.testImage}
                       resizeMode="contain"
                     />
@@ -245,6 +333,57 @@ const styles = StyleSheet.create({
     color: '#2c3e50',
     lineHeight: 20,
   },
+  errorText: {
+    fontSize: 16,
+    color: '#e74c3c',
+    textAlign: 'center',
+    marginTop: 100,
+    marginBottom: 24,
+  },
+  preview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 12,
+    backgroundColor: '#e0e0e0',
+  },
+  // Camera styles
+  cameraContainer: {
+    flex: 1,
+  },
+  cameraControls: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  captureButtonInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#9b59b6',
+  },
+  cancelButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   // Modal styles
   modalContainer: {
     flex: 1,
@@ -282,8 +421,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   testImage: {
-    width: 120,
-    height: 120,
+    width: 140,
+    height: 140,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
