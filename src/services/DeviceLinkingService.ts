@@ -228,6 +228,51 @@ class DeviceLinkingService {
   }
 
   /**
+   * Send counter value to Desktop (fire-and-forget; called every second while connected)
+   */
+  async sendCounterUpdate(value: number): Promise<any> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Desktop');
+    }
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    const request: TaskRequest = {
+      taskId,
+      taskType: 'counter_update',
+      payload: {
+        value,
+        token: this.connectionInfo!.token,
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(taskId, (response: TaskResponse) => {
+        if (response.success) {
+          resolve(response.result);
+        } else {
+          reject(new Error(response.result.error || 'Counter update failed'));
+        }
+      });
+
+      try {
+        this.connection!.send(JSON.stringify(request));
+      } catch (error) {
+        this.pendingRequests.delete(taskId);
+        reject(error);
+      }
+
+      setTimeout(() => {
+        if (this.pendingRequests.has(taskId)) {
+          this.pendingRequests.delete(taskId);
+          reject(new Error('Request timeout'));
+        }
+      }, 5000);
+    });
+  }
+
+  /**
    * Handle incoming message from Desktop
    */
   private handleMessage(data: string): void {

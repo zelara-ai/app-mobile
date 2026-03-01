@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,9 +19,28 @@ const TestingScreen: React.FC = () => {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ original: string; inverted: string } | null>(null);
   const [isConnected, setIsConnected] = useState(DeviceLinkingService.isConnected());
+  const [counterValue, setCounterValue] = useState(0);
+  const counterRef = useRef(0);
   const camera = useRef<Camera>(null);
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
+
+  // Auto-increment counter every second while connected; send each value to Desktop
+  useEffect(() => {
+    if (!isConnected) {
+      counterRef.current = 0;
+      setCounterValue(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      counterRef.current += 1;
+      setCounterValue(counterRef.current);
+      DeviceLinkingService.sendCounterUpdate(counterRef.current).catch(() => {});
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isConnected]);
 
   const takePhoto = async () => {
     if (!hasPermission) {
@@ -144,6 +163,17 @@ const TestingScreen: React.FC = () => {
             onPress={checkConnection}>
             <Text style={styles.buttonText}>Refresh Status</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Live Counter</Text>
+          <Text style={styles.description}>
+            While connected, sends an incrementing number to Desktop every second
+          </Text>
+          <Text style={styles.counterValue}>{counterValue}</Text>
+          <Text style={[styles.description, { textAlign: 'center' }]}>
+            {isConnected ? 'Sending to Desktop...' : 'Connect to Desktop to start'}
+          </Text>
         </View>
 
         <View style={styles.section}>
@@ -332,6 +362,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#2c3e50',
     lineHeight: 20,
+  },
+  counterValue: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#9b59b6',
+    textAlign: 'center',
+    marginVertical: 8,
+    fontVariant: ['tabular-nums'],
   },
   errorText: {
     fontSize: 16,
