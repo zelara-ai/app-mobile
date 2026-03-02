@@ -273,6 +273,53 @@ class DeviceLinkingService {
   }
 
   /**
+   * Send handshake to Desktop immediately after WebSocket connects.
+   * Resolves only after Desktop confirms registration. Must be called
+   * before any other task to ensure device registration happens at
+   * connection time rather than when the first counter/image task fires.
+   */
+  async sendHandshake(): Promise<void> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Desktop');
+    }
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    const request: TaskRequest = {
+      taskId,
+      taskType: 'handshake',
+      payload: {
+        token: this.connectionInfo!.token,
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(taskId, (response: TaskResponse) => {
+        if (response.success) {
+          resolve();
+        } else {
+          reject(new Error(response.result?.error || 'Handshake failed'));
+        }
+      });
+
+      try {
+        this.connection!.send(JSON.stringify(request));
+      } catch (error) {
+        this.pendingRequests.delete(taskId);
+        reject(error);
+      }
+
+      setTimeout(() => {
+        if (this.pendingRequests.has(taskId)) {
+          this.pendingRequests.delete(taskId);
+          reject(new Error('Handshake timeout'));
+        }
+      }, 5000);
+    });
+  }
+
+  /**
    * Handle incoming message from Desktop
    */
   private handleMessage(data: string): void {

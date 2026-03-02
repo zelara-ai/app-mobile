@@ -116,6 +116,9 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
       try {
         // Connect to Desktop via WebSocket — tries each IP in order
         await DeviceLinkingService.connect(ipList, parseInt(port, 10), token);
+        // Handshake: confirms the Desktop received the connection and registered
+        // this device. "Device Linked!" alert only fires after confirmation.
+        await DeviceLinkingService.sendHandshake();
 
         const newDevice: DeviceInfo = {
           id: Date.now().toString(),
