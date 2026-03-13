@@ -1,6 +1,7 @@
 package ai.zelara.mobile
 
 import com.facebook.react.modules.network.OkHttpClientFactory
+import com.facebook.react.modules.network.OkHttpClientProvider
 import okhttp3.OkHttpClient
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -29,7 +30,7 @@ class ZelaraOkHttpFactory : OkHttpClientFactory {
         val sslContext = SSLContext.getInstance("TLS")
         sslContext.init(null, trustAllCerts, SecureRandom())
 
-        return OkHttpClient.Builder()
+        return OkHttpClientProvider.createClientBuilder()
             .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
             .hostnameVerifier { _, _ -> true }
             .build()
