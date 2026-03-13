@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <!--
-        Allow cleartext WebSocket (ws://) to any host.
-        Required for local device linking over LAN/hotspot — private IPs are dynamic
-        so we cannot enumerate them statically. This is appropriate for a local-first,
-        offline app that never sends cleartext to external servers.
+        Device linking uses WSS (TLS) with a self-signed cert generated on the Desktop.
+        Cert validation is handled at the application layer via the OkHttp factory
+        (ZelaraOkHttpFactory.kt), which accepts self-signed certs for local network connections.
+        Authentication is enforced by the pairing token exchanged out-of-band via QR code.
+        Cleartext (ws://) is no longer permitted now that WSS is in place.
     -->
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system"/>
         </trust-anchors>

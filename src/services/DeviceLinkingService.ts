@@ -69,7 +69,7 @@ class DeviceLinkingService {
       };
 
       try {
-        const ws = new WebSocket(`ws://${ip}:${port}`);
+        const ws = new WebSocket(`wss://${ip}:${port}`);
 
         const timer = setTimeout(() => {
           ws.close();
@@ -129,6 +129,14 @@ class DeviceLinkingService {
    */
   isConnected(): boolean {
     return this.connected && this.connection !== null;
+  }
+
+  /**
+   * Get the IP of the currently connected Desktop, or null if not connected.
+   * Used by the Bluetooth Discovery Test to display what BLE would have shared.
+   */
+  getDesktopIp(): string | null {
+    return this.connectionInfo?.ip ?? null;
   }
 
   /**
