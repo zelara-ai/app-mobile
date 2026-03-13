@@ -8,6 +8,7 @@ import {
   Image,
   Modal,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import RNFS from 'react-native-fs';
@@ -143,8 +144,7 @@ const TestingScreen: React.FC = () => {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Testing Module</Text>
         <Text style={styles.subtitle}>
           Diagnostic tools for device communication and image processing
@@ -263,8 +263,7 @@ const TestingScreen: React.FC = () => {
             across mobile and desktop platforms.
           </Text>
         </View>
-      </View>
-    </View>
+    </ScrollView>
   );
 };
 
@@ -274,7 +273,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   content: {
-    flex: 1,
     padding: 20,
   },
   title: {

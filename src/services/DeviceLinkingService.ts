@@ -7,6 +7,10 @@
  * - Receiving and parsing responses
  */
 
+import { NativeModules, Platform } from 'react-native';
+const { ZelaraTLS } = NativeModules;
+import { ZelaraPinnedWebSocket } from './ZelaraPinnedWebSocket';
+
 interface TaskRequest {
   taskId: string;
   taskType: string;
@@ -28,25 +32,39 @@ interface ConnectionInfo {
 }
 
 class DeviceLinkingService {
-  private connection: WebSocket | null = null;
+  private connection: WebSocket | ZelaraPinnedWebSocket | null = null;
   private connectionInfo: ConnectionInfo | null = null;
   private connected: boolean = false;
   private pendingRequests: Map<string, (response: TaskResponse) => void> = new Map();
+  private certFingerprint: string | undefined;
 
   /**
    * Connect to Desktop server, trying each IP in order until one succeeds.
    * This handles cases where the QR code embeds multiple interface IPs
    * (e.g., main WiFi + hotspot adapter).
    */
-  async connect(ips: string | string[], port: number, token: string): Promise<void> {
+  async connect(ips: string | string[], port: number, token: string, cert?: string): Promise<void> {
+    this.certFingerprint = cert;
+    console.log('[DeviceLinking] connect() cert fingerprint:', cert ?? 'none (TrustAll)', '| len:', cert?.length);
+
+    // On Android, ZelaraWebSocketModule handles cert pinning directly via its own OkHttpClient.
+    // For HTTP requests (not WebSocket), also update ZelaraOkHttpFactory via ZelaraTLS.
+    // On iOS, NSAllowsLocalNetworking handles the bypass; cert pinning is a future task.
+    if (cert && ZelaraTLS?.setPinnedCert) {
+      ZelaraTLS.setPinnedCert(cert);
+    }
+
     const ipList = Array.isArray(ips) ? ips : [ips];
+    console.log('[DeviceLinking] Trying IPs:', ipList);
     const errors: string[] = [];
 
     for (const ip of ipList) {
+      console.log(`[DeviceLinking] Attempting ${ip}:${port}`);
       try {
         await this.connectToSingle(ip, port, token);
         return; // success
       } catch (err: any) {
+        console.log(`[DeviceLinking] ${ip} failed: ${err.message}`);
         errors.push(`${ip}: ${err.message}`);
       }
     }
@@ -69,7 +87,12 @@ class DeviceLinkingService {
       };
 
       try {
-        const ws = new WebSocket(`wss://${ip}:${port}`);
+        // On Android, use ZelaraWebSocketModule (owns its own OkHttpClient with cert pinning).
+        // On iOS, fall back to native WebSocket (NSAllowsLocalNetworking handles the bypass).
+        const ws: WebSocket | ZelaraPinnedWebSocket =
+          Platform.OS === 'android' && NativeModules.ZelaraWebSocket
+            ? new ZelaraPinnedWebSocket(`wss://${ip}:${port}`, this.certFingerprint)
+            : new WebSocket(`wss://${ip}:${port}`);
 
         const timer = setTimeout(() => {
           ws.close();

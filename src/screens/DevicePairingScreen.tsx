@@ -7,6 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  ScrollView,
 } from 'react-native';
 import { Camera, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -86,19 +87,25 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      // Parse query parameters manually (URLSearchParams not available in RN)
+      // Parse query parameters manually (URLSearchParams not available in RN).
+      // Use indexOf('=') so values that contain '=' (e.g. base64 padding) are preserved.
       const params: Record<string, string> = {};
       queryString.split('&').forEach(pair => {
-        const [key, value] = pair.split('=');
-        if (key && value) {
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx > 0) {
+          const key = pair.substring(0, eqIdx);
+          const value = pair.substring(eqIdx + 1);
           params[key] = decodeURIComponent(value);
         }
       });
+      console.log('[ZelaraPairing] Parsed QR params:', JSON.stringify(params));
 
       // Support both legacy `ip` and new `ips` (comma-separated) params
       const ipsParam = params.ips || params.ip;
       const port = params.port;
       const token = params.token;
+      const cert = params.cert; // SHA-256 cert fingerprint for TLS pinning (optional for back-compat)
+      console.log('[ZelaraPairing] cert fingerprint from QR:', cert, '| len:', cert?.length);
 
       if (!ipsParam || !port || !token) {
         Alert.alert('Invalid QR Code', 'Missing pairing information (ip, port, or token)', [
@@ -115,7 +122,7 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
 
       try {
         // Connect to Desktop via WebSocket — tries each IP in order
-        await DeviceLinkingService.connect(ipList, parseInt(port, 10), token);
+        await DeviceLinkingService.connect(ipList, parseInt(port, 10), token, cert);
         // Handshake: confirms the Desktop received the connection and registered
         // this device. "Device Linked!" alert only fires after confirmation.
         await DeviceLinkingService.sendHandshake();
@@ -237,8 +244,7 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Device Linking</Text>
         <Text style={styles.instructions}>
           Link your mobile device to your Desktop for advanced processing (CV models, complex calculations).
@@ -279,8 +285,7 @@ const DevicePairingScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={styles.infoText}>• Sync your progress across devices</Text>
           <Text style={styles.infoText}>• Offload heavy processing</Text>
         </View>
-      </View>
-    </View>
+    </ScrollView>
   );
 };
 
@@ -290,7 +295,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   content: {
-    flex: 1,
     padding: 20,
   },
   title: {

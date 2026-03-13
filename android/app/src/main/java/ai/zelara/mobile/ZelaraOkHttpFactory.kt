@@ -4,34 +4,33 @@ import com.facebook.react.modules.network.OkHttpClientFactory
 import com.facebook.react.modules.network.OkHttpClientProvider
 import okhttp3.OkHttpClient
 import java.security.SecureRandom
-import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
 /**
- * Custom OkHttp factory that accepts self-signed TLS certificates for local network WSS
- * connections between the Zelara mobile and desktop apps.
+ * Custom OkHttp factory for Zelara HTTP/HTTPS requests.
  *
- * Security rationale:
- * - Traffic is encrypted (protects against passive WiFi sniffing)
- * - Authentication is enforced via the pairing token exchanged out-of-band through the QR code
- * - Connections are LAN-only (private IP ranges); no external hosts are reached this way
- * - NSAllowsLocalNetworking=true on iOS achieves the equivalent bypass for iOS
+ * When a cert fingerprint has been set (via ZelaraTLSModule.setPinnedCert after QR scan),
+ * uses PinnedTrustManager. Falls back to TrustAllManager before first pairing.
+ *
+ * NOTE: This factory applies to HTTP/HTTPS requests only. WebSocket connections in
+ * React Native new-arch bypass OkHttpClientProvider — those are handled by
+ * ZelaraWebSocketModule which owns its own OkHttpClient.
  */
 class ZelaraOkHttpFactory : OkHttpClientFactory {
+
+    companion object {
+        @Volatile var pinnedFingerprint: String? = null
+    }
+
     override fun createNewNetworkModuleClient(): OkHttpClient {
-        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-        })
+        val trustManager = pinnedFingerprint?.let { PinnedTrustManager(it) } ?: TrustAllManager()
 
         val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(null, trustAllCerts, SecureRandom())
+        sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
 
         return OkHttpClientProvider.createClientBuilder()
-            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
             .hostnameVerifier { _, _ -> true }
             .build()
     }
