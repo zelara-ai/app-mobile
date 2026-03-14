@@ -31,6 +31,7 @@ export class ZelaraPinnedWebSocket {
   onclose: (() => void) | null = null;
   onerror: ((event: { message?: string }) => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
+  onbinarymessage: ((event: { data: ArrayBuffer }) => void) | null = null;
 
   constructor(url: string, fingerprint?: string) {
     this.id = `zwss_${++_connectionCounter}_${Date.now()}`;
@@ -45,6 +46,18 @@ export class ZelaraPinnedWebSocket {
         case 'onMessage':
           this.onmessage?.({ data: event.data });
           break;
+        case 'onBinaryMessage': {
+          if (this.onbinarymessage) {
+            const binaryStr = atob(event.data as string);
+            const buf = new ArrayBuffer(binaryStr.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < binaryStr.length; i++) {
+              view[i] = binaryStr.charCodeAt(i);
+            }
+            this.onbinarymessage({ data: buf });
+          }
+          break;
+        }
         case 'onClose':
           this.subscription?.remove();
           this.subscription = null;
@@ -63,6 +76,15 @@ export class ZelaraPinnedWebSocket {
 
   send(message: string): void {
     ZelaraWebSocket.send(this.id, message);
+  }
+
+  sendBinary(data: ArrayBuffer): void {
+    const bytes = new Uint8Array(data);
+    let binaryStr = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binaryStr += String.fromCharCode(bytes[i]);
+    }
+    ZelaraWebSocket.sendBinary(this.id, btoa(binaryStr));
   }
 
   close(): void {

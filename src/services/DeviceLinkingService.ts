@@ -62,6 +62,22 @@ class DeviceLinkingService {
   // Subscribers for connection state changes (reactive UI support)
   private connectionListeners: Array<(connected: boolean) => void> = [];
 
+  // Increment when the binary transfer protocol changes in a breaking way.
+  // Must stay in sync with PROTOCOL_VERSION in device_linking.rs.
+  private static readonly PROTOCOL_VERSION = 1;
+
+  // Chunk size for binary image transfers (64 KB)
+  private static readonly CHUNK_SIZE = 65536;
+
+  // State for a binary image result being received in chunks from Desktop.
+  private inboundTransfer: {
+    totalChunks: number;
+    chunks: Map<number, Uint8Array>;
+    resolve: (bytes: Uint8Array) => void;
+    reject: (err: Error) => void;
+    timeoutHandle: ReturnType<typeof setTimeout>;
+  } | null = null;
+
   // ─── Public API ────────────────────────────────────────────────────────────
 
   /**
@@ -141,6 +157,14 @@ class DeviceLinkingService {
           settle(() => reject(new Error('Connection timeout')));
         }, 3000);
 
+        // For iOS native WebSocket, request ArrayBuffer delivery for binary frames.
+        // ZelaraPinnedWebSocket (Android) handles binary via its own onbinarymessage path.
+        // TODO: Verify on real iOS hardware — RN 0.76+ should honour binaryType='arraybuffer',
+        //       but this has not been tested end-to-end on a physical device yet.
+        if (!(ws instanceof ZelaraPinnedWebSocket)) {
+          (ws as WebSocket).binaryType = 'arraybuffer';
+        }
+
         ws.onopen = () => {
           clearTimeout(timer);
           console.log(`[DeviceLinking] Connected to Desktop at ${ip}:${port}`);
@@ -159,7 +183,6 @@ class DeviceLinkingService {
           };
 
           // Persistent error handler — handles abrupt drops (e.g., airplane mode).
-          // Without this, an onerror on an established connection would go unhandled.
           ws.onerror = (event: any) => {
             console.error('[DeviceLinking] Connection error on established socket:', event?.message ?? event);
             this.connected = false;
@@ -168,8 +191,20 @@ class DeviceLinkingService {
             this.scheduleReconnect();
           };
 
+          // Wire binary message handler for Android (ZelaraPinnedWebSocket path).
+          if (ws instanceof ZelaraPinnedWebSocket) {
+            ws.onbinarymessage = (event) => {
+              this.handleBinaryMessage(event.data);
+            };
+          }
+
+          // Text messages (and binary for iOS via binaryType='arraybuffer').
           ws.onmessage = (event) => {
-            this.handleMessage(event.data);
+            if (event.data instanceof ArrayBuffer) {
+              this.handleBinaryMessage(event.data);
+            } else {
+              this.handleMessage(event.data);
+            }
           };
 
           settle(() => resolve());
@@ -230,47 +265,56 @@ class DeviceLinkingService {
   // ─── Task Methods ──────────────────────────────────────────────────────────
 
   /**
-   * Send image inversion test request to Desktop
+   * Send image inversion test to Desktop using binary chunked transfer.
+   * Sends raw image bytes in 64 KB binary WebSocket frames instead of base64 JSON,
+   * keeping the message loop responsive (counter won't freeze).
+   *
+   * @param imageBytes - Raw image bytes (e.g. JPEG from camera)
+   * @param mime - MIME type hint for the Desktop (default: 'image/jpeg')
+   * @returns Raw PNG bytes of the inverted image
    */
-  async sendImageInversionTest(base64Image: string): Promise<any> {
+  async sendImageInversionTest(imageBytes: Uint8Array, mime: string = 'image/jpeg'): Promise<Uint8Array> {
     if (!this.isConnected()) {
       throw new Error('Not connected to Desktop');
     }
 
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const CHUNK_SIZE = DeviceLinkingService.CHUNK_SIZE;
+    const totalChunks = Math.ceil(imageBytes.length / CHUNK_SIZE);
 
-    const request: TaskRequest = {
-      taskId,
-      taskType: 'image_inversion_test',
-      payload: {
-        imageData: base64Image,
-        token: this.connectionInfo!.token,
-      },
-      timestamp: new Date().toISOString(),
-    };
+    // 1. img_start control frame
+    this.connection!.send(JSON.stringify({ type: 'img_start', taskId, totalChunks, mime }));
 
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(taskId, (response: TaskResponse) => {
-        if (response.success) {
-          resolve(response.result);
-        } else {
-          reject(new Error(response.result.error || 'Inversion failed'));
-        }
-      });
-
-      try {
-        this.connection!.send(JSON.stringify(request));
-      } catch (error) {
-        this.pendingRequests.delete(taskId);
-        reject(error);
+    // 2. Binary chunks: [4 bytes uint32 BE: chunk_index][raw bytes]
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkData = imageBytes.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      const frame = new ArrayBuffer(4 + chunkData.length);
+      new DataView(frame).setUint32(0, i, false); // big-endian index
+      new Uint8Array(frame, 4).set(chunkData);
+      if (this.connection instanceof ZelaraPinnedWebSocket) {
+        this.connection.sendBinary(frame);
+      } else {
+        (this.connection as WebSocket).send(frame);
       }
+    }
 
-      setTimeout(() => {
-        if (this.pendingRequests.has(taskId)) {
-          this.pendingRequests.delete(taskId);
-          reject(new Error('Request timeout'));
-        }
-      }, 30000);
+    // 3. img_end control frame
+    this.connection!.send(JSON.stringify({ type: 'img_end', taskId }));
+
+    // 4. Await reassembled result from Desktop
+    return new Promise((resolve, reject) => {
+      const timeoutHandle = setTimeout(() => {
+        this.inboundTransfer = null;
+        reject(new Error('Image inversion timeout'));
+      }, 60000);
+
+      this.inboundTransfer = {
+        totalChunks: 0, // set when img_result_start arrives
+        chunks: new Map(),
+        resolve,
+        reject,
+        timeoutHandle,
+      };
     });
   }
 
@@ -387,6 +431,7 @@ class DeviceLinkingService {
         token: this.connectionInfo!.token,
         device_id: deviceId,
         discovery_method: this.discoveryMethod,
+        protocolVersion: DeviceLinkingService.PROTOCOL_VERSION,
       },
       timestamp: new Date().toISOString(),
     };
@@ -394,6 +439,13 @@ class DeviceLinkingService {
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(taskId, (response: TaskResponse) => {
         if (response.success) {
+          const desktopVersion = response.result?.protocolVersion;
+          if (desktopVersion !== undefined && desktopVersion !== DeviceLinkingService.PROTOCOL_VERSION) {
+            console.warn(
+              `[DeviceLinking] Protocol version mismatch: Mobile=${DeviceLinkingService.PROTOCOL_VERSION} Desktop=${desktopVersion}` +
+              ' — binary transfer may behave unexpectedly. Update both apps.',
+            );
+          }
           resolve();
         } else {
           reject(new Error(response.result?.error || 'Handshake failed'));
@@ -420,7 +472,31 @@ class DeviceLinkingService {
 
   private handleMessage(data: string): void {
     try {
-      const response: TaskResponse = JSON.parse(data);
+      const msg = JSON.parse(data);
+
+      // Binary transfer control messages
+      if (msg.type === 'img_result_start') {
+        if (this.inboundTransfer) {
+          this.inboundTransfer.totalChunks = msg.totalChunks;
+          // All chunks may have arrived before the start frame (unlikely but safe)
+          if (this.inboundTransfer.chunks.size === msg.totalChunks) {
+            this.assembleAndResolveInbound();
+          }
+        }
+        return;
+      }
+
+      if (msg.type === 'img_result_end') {
+        if (!msg.success && this.inboundTransfer) {
+          clearTimeout(this.inboundTransfer.timeoutHandle);
+          this.inboundTransfer.reject(new Error(msg.error ?? 'Inversion failed'));
+          this.inboundTransfer = null;
+        }
+        return;
+      }
+
+      // Normal TaskResponse
+      const response: TaskResponse = msg;
       const callback = this.pendingRequests.get(response.taskId);
       if (callback) {
         callback(response);
@@ -429,6 +505,39 @@ class DeviceLinkingService {
     } catch (error) {
       console.error('[DeviceLinking] Failed to parse response:', error);
     }
+  }
+
+  private handleBinaryMessage(data: ArrayBuffer): void {
+    if (!this.inboundTransfer || data.byteLength < 4) return;
+
+    const chunkIndex = new DataView(data).getUint32(0, false); // big-endian
+    const chunkBytes = new Uint8Array(data.slice(4));
+    this.inboundTransfer.chunks.set(chunkIndex, chunkBytes);
+
+    if (
+      this.inboundTransfer.totalChunks > 0 &&
+      this.inboundTransfer.chunks.size === this.inboundTransfer.totalChunks
+    ) {
+      this.assembleAndResolveInbound();
+    }
+  }
+
+  private assembleAndResolveInbound(): void {
+    if (!this.inboundTransfer) return;
+    const { totalChunks, chunks, resolve, timeoutHandle } = this.inboundTransfer;
+
+    clearTimeout(timeoutHandle);
+    this.inboundTransfer = null;
+
+    const totalLength = Array.from(chunks.values()).reduce((sum, c) => sum + c.length, 0);
+    const assembled = new Uint8Array(totalLength);
+    let offset = 0;
+    for (let i = 0; i < totalChunks; i++) {
+      const chunk = chunks.get(i)!;
+      assembled.set(chunk, offset);
+      offset += chunk.length;
+    }
+    resolve(assembled);
   }
 
   private notifyConnectionChange(connected: boolean): void {

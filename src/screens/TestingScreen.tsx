@@ -79,15 +79,23 @@ const TestingScreen: React.FC = () => {
 
     setTesting(true);
     try {
-      const base64Image = await RNFS.readFile(imageUri.replace('file://', ''), 'base64');
-      const result = await DeviceLinkingService.sendImageInversionTest(base64Image);
+      // Read as base64 then decode to raw bytes for binary chunked transfer
+      const fileBase64 = await RNFS.readFile(imageUri.replace('file://', ''), 'base64');
+      const imageBytes = Uint8Array.from(atob(fileBase64), c => c.charCodeAt(0));
+      const invertedBytes = await DeviceLinkingService.sendImageInversionTest(imageBytes);
+
+      // Convert result bytes back to base64 for Image component display
+      let invertedStr = '';
+      for (let i = 0; i < invertedBytes.length; i++) {
+        invertedStr += String.fromCharCode(invertedBytes[i]);
+      }
 
       setTestResult({
-        original: base64Image,
-        inverted: result.invertedImage,
+        original: fileBase64,
+        inverted: btoa(invertedStr),
       });
 
-      Alert.alert('Success', result.message || 'Image inverted successfully!');
+      Alert.alert('Success', 'Image inverted successfully!');
     } catch (error: any) {
       console.error('Image inversion test failed:', error);
       Alert.alert('Test Failed', error.message || 'Failed to invert image');

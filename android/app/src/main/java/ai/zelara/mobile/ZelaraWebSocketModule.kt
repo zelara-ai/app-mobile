@@ -5,11 +5,13 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import android.util.Base64
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -64,6 +66,11 @@ class ZelaraWebSocketModule(private val reactContext: ReactApplicationContext) :
                 emit(id, "onMessage", text)
             }
 
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                val encoded = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+                emit(id, "onBinaryMessage", encoded)
+            }
+
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
                 sockets.remove(id)
@@ -80,6 +87,12 @@ class ZelaraWebSocketModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun send(id: String, message: String) {
         sockets[id]?.send(message)
+    }
+
+    @ReactMethod
+    fun sendBinary(id: String, base64Data: String) {
+        val bytes = Base64.decode(base64Data, Base64.NO_WRAP)
+        sockets[id]?.send(ByteString.of(*bytes))
     }
 
     @ReactMethod
