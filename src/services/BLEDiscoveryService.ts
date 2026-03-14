@@ -14,10 +14,9 @@
  */
 
 import { BleManager, State as BleState } from 'react-native-ble-plx';
+import { PermissionsAndroid, Platform } from 'react-native';
+import { Buffer } from 'buffer';
 import DeviceLinkingService from './DeviceLinkingService';
-
-// Zelara service UUID — must match ZELARA_SERVICE_UUID in ble_advertising.rs
-const ZELARA_SERVICE_UUID = 'a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6';
 
 // Company ID encoded little-endian (0xFFFE → bytes [0xFE, 0xFF])
 const ZELARA_COMPANY_ID_BYTES = [0xfe, 0xff];
@@ -25,6 +24,9 @@ const ZELARA_COMPANY_ID_BYTES = [0xfe, 0xff];
 class BLEDiscoveryService {
   private manager: BleManager | null = null;
   private scanning = false;
+  private permissionsGranted = false;
+  private waitingForPower = false;
+  private bleRetryDelay = 5_000; // ms; doubles on each WSS failure, resets on success
 
   // ─── Public API ────────────────────────────────────────────────────────────
 
@@ -34,8 +36,14 @@ class BLEDiscoveryService {
    * Automatically stops scanning once a successful WSS connection is established.
    * Restarts scanning after a disconnect so the IP can be re-discovered.
    */
-  startScan(): void {
+  async startScan(): Promise<void> {
     if (this.scanning) return;
+
+    const granted = await this.requestPermissions();
+    if (!granted) {
+      console.warn('[BLEDiscovery] BLE permissions denied — scan skipped');
+      return;
+    }
 
     // Lazily create BleManager — constructor starts the BLE stack
     if (!this.manager) {
@@ -56,7 +64,6 @@ class BLEDiscoveryService {
     if (!this.scanning || !this.manager) return;
     this.manager.stopDeviceScan();
     this.scanning = false;
-    console.log('[BLEDiscovery] Scan stopped');
   }
 
   /** Destroy the BLE manager. Call on app teardown if needed. */
@@ -68,23 +75,71 @@ class BLEDiscoveryService {
 
   // ─── Internal ──────────────────────────────────────────────────────────────
 
+  private async requestPermissions(): Promise<boolean> {
+    if (this.permissionsGranted) return true;
+    if (Platform.OS !== 'android') {
+      this.permissionsGranted = true;
+      return true;
+    }
+
+    let granted: boolean;
+    if (Platform.Version >= 31) {
+      const results = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+      ]);
+      granted = Object.values(results).every(
+        (r) => r === PermissionsAndroid.RESULTS.GRANTED,
+      );
+    } else {
+      // Android 6–11: location permission required for BLE scan
+      const result = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      );
+      granted = result === PermissionsAndroid.RESULTS.GRANTED;
+    }
+
+    if (granted) this.permissionsGranted = true;
+    return granted;
+  }
+
+  private waitForPowerOn(): void {
+    if (!this.manager || this.waitingForPower) return;
+    this.waitingForPower = true;
+    console.log('[BLEDiscovery] BLE off — waiting to resume scan');
+    const sub = this.manager.onStateChange((state) => {
+      if (state === BleState.PoweredOn) {
+        this.waitingForPower = false;
+        sub.remove();
+        this.doScan();
+      }
+    }, true /* emitCurrentState — fires immediately if already on */);
+  }
+
   private doScan(): void {
     if (!this.manager) return;
 
     console.log('[BLEDiscovery] Scanning for Zelara Desktop...');
     this.scanning = true;
+    let seenCount = 0;
 
     this.manager.startDeviceScan(
-      [ZELARA_SERVICE_UUID],
+      null, // no UUID filter — Desktop omits service UUID to stay within the 31-byte BLE limit; company ID in manufacturer data is the filter
       { allowDuplicates: false },
       (error, device) => {
         if (error) {
           console.warn('[BLEDiscovery] Scan error:', error.message);
           this.scanning = false;
+          this.waitForPowerOn();
           return;
         }
 
-        if (!device || !device.manufacturerData) return;
+        seenCount++;
+        if (seenCount === 1 || seenCount % 10 === 0) {
+          console.log(`[BLEDiscovery] Scanning... (${seenCount} devices seen)`);
+        }
+
+        if (!device?.manufacturerData) return;
 
         const parsed = this.parseManufacturerData(device.manufacturerData);
         if (!parsed) return;
@@ -101,6 +156,7 @@ class BLEDiscoveryService {
           .then(() => DeviceLinkingService.sendHandshake())
           .then(() => {
             console.log('[BLEDiscovery] Connected to Desktop via BLE');
+            this.bleRetryDelay = 5_000; // reset backoff on success
             // Re-start BLE scan on disconnect so we can reconnect if IP changes
             DeviceLinkingService.onConnectionChange((connected) => {
               if (!connected) {
@@ -110,9 +166,10 @@ class BLEDiscoveryService {
             });
           })
           .catch((err: any) => {
-            console.warn('[BLEDiscovery] WSS connection failed:', err.message);
-            // Restart scan to try again
-            this.startScan();
+            const delay = this.bleRetryDelay;
+            this.bleRetryDelay = Math.min(this.bleRetryDelay * 2, 60_000);
+            console.warn(`[BLEDiscovery] WSS failed (retry in ${delay / 1000}s):`, err.message);
+            setTimeout(() => this.startScan(), delay);
           });
       },
     );
