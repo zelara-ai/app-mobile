@@ -32,14 +32,30 @@ cd ..
 Add the following permissions to `android/app/src/main/AndroidManifest.xml`:
 
 ```xml
+<!-- Camera & storage -->
 <uses-permission android:name="android.permission.CAMERA" />
 <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+<!-- BLE Auto-Discovery (Android 12+ / API 31+) -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+    android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+<!-- BLE Auto-Discovery (Android < 12 / API 30 and below) -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
+<!-- Mark BLE as optional (app works via QR if BLE unavailable) -->
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 ```
 
 ### 2. Request Runtime Permissions
 
-The libraries (`react-native-vision-camera` and `react-native-camera`) handle runtime permission requests automatically.
+The libraries (`react-native-vision-camera` and `react-native-camera`) handle camera runtime permission requests automatically.
+
+For BLE (`react-native-ble-plx`), Android 12+ requires `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` at runtime. The `BLEDiscoveryService` gracefully handles denial — BLE scanning is skipped and QR pairing remains available.
 
 ## Post-Installation
 
@@ -81,5 +97,6 @@ After configuring permissions:
 - `react-native-camera`: QR scanning
 - `react-native-qrcode-scanner`: QR code scanner wrapper
 - `react-native-fs`: File system access for image reading
+- `react-native-ble-plx`: BLE scanning for auto-discovery (`BLEDiscoveryService`)
 
 All dependencies are already added to package.json. Run `npm install` to install them.

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './src/screens/HomeScreen';
@@ -6,6 +6,7 @@ import RecyclingTaskScreen from './src/screens/RecyclingTaskScreen';
 import DevicePairingScreen from './src/screens/DevicePairingScreen';
 import FinanceScreen from './src/screens/FinanceScreen';
 import TestingScreen from './src/screens/TestingScreen';
+import BLEDiscoveryService from './src/services/BLEDiscoveryService';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -18,6 +19,16 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function App(): React.JSX.Element {
+  useEffect(() => {
+    // Start BLE scanning at app launch so Desktop can be discovered automatically.
+    // No-op if BLE is unavailable or permissions are denied — QR pairing still works.
+    BLEDiscoveryService.startScan();
+
+    return () => {
+      BLEDiscoveryService.destroy();
+    };
+  }, []);
+
   return (
     <NavigationContainer>
       <Stack.Navigator

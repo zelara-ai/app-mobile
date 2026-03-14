@@ -36,6 +36,7 @@ interface ConnectionInfo {
   port: number;
   token: string;
   cert?: string;
+  discoveryMethod?: 'ble' | 'qr';
 }
 
 class DeviceLinkingService {
@@ -47,6 +48,9 @@ class DeviceLinkingService {
 
   // Stable per-device UUID, persisted across app restarts.
   private deviceId: string | null = null;
+
+  // How the current connection was discovered ("ble" or "qr").
+  private discoveryMethod: 'ble' | 'qr' = 'qr';
 
   // Credentials from the last successful connect — used for auto-reconnect.
   private lastKnownCredentials: ConnectionInfo | null = null;
@@ -74,8 +78,12 @@ class DeviceLinkingService {
    * Connect to Desktop server, trying each IP in order until one succeeds.
    * This handles cases where the QR code embeds multiple interface IPs
    * (e.g., main WiFi + hotspot adapter).
+   *
+   * @param discoveryMethod How this connection was discovered — "ble" for BLE auto-discovery,
+   *   "qr" (default) for QR code pairing.
    */
-  async connect(ips: string | string[], port: number, token: string, cert?: string): Promise<void> {
+  async connect(ips: string | string[], port: number, token: string, cert?: string, discoveryMethod: 'ble' | 'qr' = 'qr'): Promise<void> {
+    this.discoveryMethod = discoveryMethod;
     this.certFingerprint = cert;
     console.log('[DeviceLinking] connect() cert fingerprint:', cert ?? 'none (TrustAll)', '| len:', cert?.length);
 
@@ -94,8 +102,8 @@ class DeviceLinkingService {
       console.log(`[DeviceLinking] Attempting ${ip}:${port}`);
       try {
         await this.connectToSingle(ip, port, token, cert);
-        // Store credentials for auto-reconnect
-        this.lastKnownCredentials = { ips: ipList, port, token, cert };
+        // Store credentials for auto-reconnect (preserve discovery method)
+        this.lastKnownCredentials = { ips: ipList, port, token, cert, discoveryMethod: this.discoveryMethod };
         return; // success
       } catch (err: any) {
         console.log(`[DeviceLinking] ${ip} failed: ${err.message}`);
@@ -378,6 +386,7 @@ class DeviceLinkingService {
       payload: {
         token: this.connectionInfo!.token,
         device_id: deviceId,
+        discovery_method: this.discoveryMethod,
       },
       timestamp: new Date().toISOString(),
     };
@@ -447,7 +456,7 @@ class DeviceLinkingService {
 
       console.log(`[DeviceLinking] Reconnect attempt ${this.reconnectAttempt} — trying ${creds.ips.join(', ')}`);
       try {
-        await this.connect(creds.ips, creds.port, creds.token, creds.cert);
+        await this.connect(creds.ips, creds.port, creds.token, creds.cert, creds.discoveryMethod ?? 'qr');
         await this.sendHandshake();
         this.reconnectAttempt = 0;
         console.log('[DeviceLinking] Reconnected successfully');
