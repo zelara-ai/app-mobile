@@ -13,7 +13,6 @@ import RNFS from 'react-native-fs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import DeviceLinkingService from '../services/DeviceLinkingService';
-import ProgressService from '../services/ProgressService';
 
 type RecyclingTaskScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -75,21 +74,9 @@ const RecyclingTaskScreen: React.FC<Props> = ({ navigation }) => {
       const result = await DeviceLinkingService.sendImageValidation(base64Image);
 
       if (result.success) {
-        // Award points for successful validation
-        const taskId = `recycling_${Date.now()}`;
-        const pointsAwarded = 10;
-        const { newPoints, unlockedModules } = await ProgressService.awardPoints(
-          pointsAwarded,
-          taskId
-        );
-
-        // Build success message
-        let message = `${result.message}\nConfidence: ${(result.confidence * 100).toFixed(0)}%\n\nYou earned ${pointsAwarded} points!\nTotal points: ${newPoints}`;
-
-        // Check if any modules were unlocked
-        if (unlockedModules.length > 0) {
-          message += `\n\n🎉 NEW UNLOCK AVAILABLE: ${unlockedModules.join(', ').toUpperCase()} module!`;
-        }
+        // Desktop awards points and broadcasts progress_sync to Mobile automatically.
+        // Do not self-award here — that would double-count.
+        const message = `${result.message}\nConfidence: ${(result.confidence * 100).toFixed(0)}%\n\nDesktop has awarded your points — your total will update shortly.`;
 
         Alert.alert('Validation Success!', message, [
           {

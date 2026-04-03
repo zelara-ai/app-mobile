@@ -37,8 +37,28 @@ const UNLOCK_THRESHOLDS = {
   // homeowner: 200,
 };
 
+type ProgressListener = (progress: ProgressState) => void;
+
 class ProgressService {
   private cachedProgress: ProgressState | null = null;
+  private progressListeners: ProgressListener[] = [];
+
+  /**
+   * Subscribe to progress changes. Returns an unsubscribe function.
+   * Called whenever saveProgress completes (including syncFromDesktop).
+   */
+  onProgressChange(cb: ProgressListener): () => void {
+    this.progressListeners.push(cb);
+    return () => {
+      this.progressListeners = this.progressListeners.filter(l => l !== cb);
+    };
+  }
+
+  private notifyProgressChange(progress: ProgressState): void {
+    for (const cb of this.progressListeners) {
+      try { cb(progress); } catch {}
+    }
+  }
 
   /**
    * Load progress from AsyncStorage
@@ -73,6 +93,7 @@ class ProgressService {
       const json = JSON.stringify(progress);
       await AsyncStorage.setItem(STORAGE_KEY, json);
       this.cachedProgress = progress;
+      this.notifyProgressChange(progress);
     } catch (error) {
       console.error('Failed to save progress:', error);
       throw new Error('Failed to save progress');
@@ -158,6 +179,29 @@ class ProgressService {
     }
 
     await this.saveProgress(progress);
+  }
+
+  /**
+   * Adopt the authoritative progress state pushed from Desktop.
+   * Desktop is the single source of truth; Mobile overwrites its local state.
+   * Mobile-only fields (tasks_completed) are preserved.
+   */
+  async syncFromDesktop(desktopProgress: {
+    points: number;
+    unlockedModules: string[];
+    availableUnlocks: string[];
+    lastUpdated: string;
+  }): Promise<ProgressState> {
+    const current = await this.loadProgress();
+    const merged: ProgressState = {
+      points: desktopProgress.points,
+      unlocked_modules: desktopProgress.unlockedModules,
+      available_unlocks: desktopProgress.availableUnlocks,
+      tasks_completed: current.tasks_completed,
+      last_updated: desktopProgress.lastUpdated,
+    };
+    await this.saveProgress(merged);
+    return merged;
   }
 
   /**

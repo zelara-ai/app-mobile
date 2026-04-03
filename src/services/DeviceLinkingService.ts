@@ -14,6 +14,7 @@ import { NativeModules, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 const { ZelaraTLS } = NativeModules;
 import { ZelaraPinnedWebSocket } from './ZelaraPinnedWebSocket';
+import ProgressService from './ProgressService';
 
 const DEVICE_ID_KEY = 'zelara_device_id';
 
@@ -468,6 +469,48 @@ class DeviceLinkingService {
     });
   }
 
+  /**
+   * Ask Desktop to push its current progress state.
+   * The actual update arrives asynchronously as a 'progress_sync' push message.
+   */
+  async requestSync(): Promise<void> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Desktop');
+    }
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const request: TaskRequest = {
+      taskId,
+      taskType: 'request_sync',
+      payload: { token: this.connectionInfo!.token },
+      timestamp: new Date().toISOString(),
+    };
+
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(taskId, (response: TaskResponse) => {
+        if (response.success) {
+          resolve();
+        } else {
+          reject(new Error(response.result?.error || 'Sync request failed'));
+        }
+      });
+
+      try {
+        this.connection!.send(JSON.stringify(request));
+      } catch (error) {
+        this.pendingRequests.delete(taskId);
+        reject(error);
+      }
+
+      setTimeout(() => {
+        if (this.pendingRequests.has(taskId)) {
+          this.pendingRequests.delete(taskId);
+          reject(new Error('Sync request timeout'));
+        }
+      }, 5000);
+    });
+  }
+
   // ─── Internal helpers ──────────────────────────────────────────────────────
 
   private handleMessage(data: string): void {
@@ -492,6 +535,17 @@ class DeviceLinkingService {
           this.inboundTransfer.reject(new Error(msg.error ?? 'Inversion failed'));
           this.inboundTransfer = null;
         }
+        return;
+      }
+
+      // Progress sync push from Desktop (not a TaskResponse — Desktop is authoritative)
+      if (msg.type === 'progress_sync') {
+        ProgressService.syncFromDesktop({
+          points: msg.points,
+          unlockedModules: msg.unlockedModules,
+          availableUnlocks: msg.availableUnlocks,
+          lastUpdated: msg.lastUpdated,
+        }).catch(err => console.error('[DeviceLinking] progress sync failed:', err));
         return;
       }
 

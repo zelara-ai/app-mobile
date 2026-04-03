@@ -34,11 +34,22 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     loadProgress();
 
     // Reload progress when screen is focused (after completing tasks)
-    const unsubscribe = navigation.addListener('focus', () => {
-      loadProgress();
+    const unsubscribeFocus = navigation.addListener('focus', loadProgress);
+
+    // Real-time update when Desktop pushes a progress_sync over WebSocket
+    const unsubscribeProgress = ProgressService.onProgressChange((updated) => {
+      setProgress({
+        points: updated.points,
+        unlocked_modules: updated.unlocked_modules,
+        available_unlocks: updated.available_unlocks,
+      });
+      setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribeFocus();
+      unsubscribeProgress();
+    };
   }, [navigation]);
 
   const loadProgress = async () => {

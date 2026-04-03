@@ -21,6 +21,8 @@ const TestingScreen: React.FC = () => {
   const [testResult, setTestResult] = useState<{ original: string; inverted: string } | null>(null);
   const [isConnected, setIsConnected] = useState(DeviceLinkingService.isConnected());
   const [counterValue, setCounterValue] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const counterRef = useRef(0);
   const camera = useRef<Camera>(null);
   const device = useCameraDevice('back');
@@ -113,6 +115,18 @@ const TestingScreen: React.FC = () => {
     );
   };
 
+  const handleRequestSync = async () => {
+    setSyncing(true);
+    try {
+      await DeviceLinkingService.requestSync();
+      setLastSyncTime(new Date().toLocaleTimeString());
+    } catch (err: any) {
+      Alert.alert('Sync Failed', err.message || 'Could not sync from Desktop');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Full-screen camera view
   if (showCamera) {
     if (!device) {
@@ -182,6 +196,30 @@ const TestingScreen: React.FC = () => {
           <Text style={[styles.description, { textAlign: 'center' }]}>
             {isConnected ? 'Sending to Desktop...' : 'Connect to Desktop to start'}
           </Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Progress Sync</Text>
+          <Text style={styles.description}>
+            Request Desktop to push its current progress. Points awarded on Desktop sync here automatically — use this to force an immediate pull.
+          </Text>
+          {lastSyncTime && (
+            <Text style={[styles.description, { color: '#27ae60' }]}>
+              Last sync: {lastSyncTime}
+            </Text>
+          )}
+          <TouchableOpacity
+            style={[styles.button, styles.secondaryButton]}
+            onPress={handleRequestSync}
+            disabled={syncing || !isConnected}>
+            {syncing ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>
+                {isConnected ? 'Sync from Desktop' : 'Connect Desktop First'}
+              </Text>
+            )}
+          </TouchableOpacity>
         </View>
 
         <View style={styles.section}>
